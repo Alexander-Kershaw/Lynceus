@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lynceus"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "termcolor>=2.4",
+    "numpy>=1.26"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
