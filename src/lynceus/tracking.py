@@ -34,11 +34,20 @@ class Track:
     misses: int = 0
     confirmed: bool = False
 
+    # Track Initiation
+    last_z: np.ndarray | None = None
+    last_k: int | None = None
+
 
 # Defining euclidean distance
 def _euclid(a: np.ndarray, b: np.ndarray) -> float:
     d = a - b
     return float(np.sqrt(d[0] * d[0] + d[1] * d[1]))
+
+
+# Initiation gate (to avoid duplication spawning of targets / target explosion)
+def within_radius(p: np.ndarray, q: np.ndarray, r: float) -> bool:
+    return _euclid(p, q) <= r
 
 
 def greedy_nn_assign(
@@ -108,21 +117,32 @@ class MultiTargetTracker:
         self.R = R
 
         self.gate_radius = gate_radius
+        self.init_radius = gate_radius
         self.confirm_hits = confirm_hits
         self.kill_misses = kill_misses
 
         self._next_id = 1
         self.tracks: list[Track] = []
 
-    def _init_track(self, z: np.ndarray) -> Track:
-        # A new track starts with position from detection, zero velocity
+    def _init_track(self, z: np.ndarray, k: int) -> Track:
         x = np.array([z[0], z[1], 0.0, 0.0], dtype=float)
-        P = np.diag([25.0, 25.0, 25.0, 25.0]).astype(float)
-        t = Track(track_id=self._next_id, x=x, P=P, age=0, hits=1, misses=0, confirmed=False)
+        P = np.diag([25.0, 25.0, 100.0, 100.0]).astype(float)
+        t = Track(
+            track_id=self._next_id,
+            x=x,
+            P=P,
+            age=0,
+            hits=1,
+            misses=0,
+            confirmed=False,
+            last_z=z.copy(),
+            last_k=k,
+        )
         self._next_id += 1
         return t
 
-    def step(self, detections: list[np.ndarray]) -> list[Track]:
+
+    def step(self, k: int, detections: list[np.ndarray]) -> list[Track]:
         """
         ------------------------------------------------------------
         
@@ -142,7 +162,7 @@ class MultiTargetTracker:
             pred_P.append(P_pred)
             pred_pos.append(x_pred[0:2])
 
-        #  Associate detections to predicted track positions
+        # Associate detections to predicted track positions
         assignments, unassigned_tracks, unassigned_dets = greedy_nn_assign(
             track_pos=pred_pos,
             detections=detections,
@@ -155,11 +175,25 @@ class MultiTargetTracker:
             x_upd, P_upd = kf_update(pred_x[ti], pred_P[ti], z, self.H, self.R)
 
             trk = self.tracks[ti]
+
+            # If track is not confirmed and use previous measurement, estimate velocity
+            if (not trk.confirmed) and (trk.last_z is not None) and (trk.last_k is not None):
+                dt_steps = k - trk.last_k
+                if dt_steps > 0:
+                    dt_eff = dt_steps * (self.F[0, 2]) # dt_steps * Velocity
+                    v_est = (z - trk.last_z) / dt_eff
+                    # Injecting velocity guess into predicted state before KF update
+                    pred_x[ti] = pred_x[ti].copy()
+                    pred_x[ti][2:4] = v_est
+
             trk.x = x_upd
             trk.P = P_upd
             trk.age += 1
             trk.hits += 1
             trk.misses = 0
+            trk.last_z = z.copy()
+            trk.last_k = k
+            
             if (not trk.confirmed) and trk.hits >= self.confirm_hits:
                 trk.confirmed = True
 
@@ -173,7 +207,18 @@ class MultiTargetTracker:
 
         # Create new tracks from unassigned detections
         for di in sorted(unassigned_dets):
-            self.tracks.append(self._init_track(detections[di]))
+            z = detections[di]
+
+            # If detection is close to any predicted track position
+            # do not spawn a new track as its likely a duplicate track causing tracking explosion
+            too_close = False
+            for p in pred_pos:
+                if within_radius(p, z, self.init_radius):
+                    too_close = True
+                    break
+
+            if not too_close:
+                self.tracks.append(self._init_track(z, k))
 
         # Delete tracks with too many misses
         self.tracks = [t for t in self.tracks if t.misses < self.kill_misses]

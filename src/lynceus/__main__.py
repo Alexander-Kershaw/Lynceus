@@ -52,15 +52,16 @@ def main() -> None:
     # Run tracking over time
     track_log: list[list[tuple[int, float, float, bool]]] = []
     for k in range(len(Z)):
-        tracks = tracker.step(Z[k])
+        tracks = tracker.step(k, Z[k])
         snap = []
         for t in tracks:
-            snap.append((t.track_id, float(t.x[0]), float(t.x[1]), t.confirmed))
+            snap.append((t.track_id, float(t.x[0]), float(t.x[1]), t.confirmed, t.misses)) # Including misses as well as confirmed to verify tracking
         track_log.append(snap)
 
     print(colored("Tracks at timesteps 0..9:", "magenta"))
     for k in range(10):
-        items = ", ".join([f"id={tid} ({x:.1f},{y:.1f}){'*' if conf else ''}" for tid, x, y, conf in track_log[k]])
+        items = ", ".join([f"id={tid} ({x:.1f},{y:.1f}) m={m}{'*' if conf else ''}" for tid, x, y, conf, m in track_log[k]])
+
         print(f"k={k:02d}  {items}")
 
 
