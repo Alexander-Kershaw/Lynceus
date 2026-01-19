@@ -4,6 +4,8 @@ from lynceus.config import SimConfig
 from lynceus.dynamics import CVModel, simulate_truth_cv
 from lynceus.sensors import CartesianSensor, simulate_measurements
 from lynceus.filters import Q_cv, kf_predict, kf_update
+from lynceus.metrics import rmse, rmse_measurements_vs_truth
+
 
 from termcolor import colored
 
@@ -80,6 +82,19 @@ def main() -> None:
         if k < 10:
             px, py, vx, vy = x_est
             print(f"k={k:02d} [{tag}]  pos=({px:7.2f},{py:7.2f})  vel=({vx:5.2f},{vy:5.2f})")
+
+    
+    # Metrics 
+    truth_pos = X[:, 0:2]
+    kf_pos = est[:, 0:2]
+
+    kf_rmse = rmse(kf_pos, truth_pos)
+    meas_rmse = rmse_measurements_vs_truth(Z, X)
+
+    print(colored("Metrics:", "green"))
+    print(f"RMSE position | KF vs truth: {kf_rmse:.3f}")
+    print(f"RMSE position | meas vs truth: {meas_rmse:.3f}")
+
 
 
 if __name__ == "__main__":
