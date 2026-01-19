@@ -13,3 +13,6 @@ class SimConfig:
     meas_sigma: float = 1.0 # standard deviation of cartesian position measurements noise (controls radar resolution)
     p_miss: float = 0.10 # probability a detection is missed (simulates radar droppouts and occlusions)
 
+    # Motion / process noise
+    accel_sigma: float = 0.5 # constant to indicate to Kalman filter module how much unmodelled acceleration to expect
+

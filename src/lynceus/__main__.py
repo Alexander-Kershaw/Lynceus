@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from lynceus.config import SimConfig
-from lynceus.dynamics import simulate_truth_cv
+from lynceus.dynamics import CVModel, simulate_truth_cv
 from lynceus.sensors import CartesianSensor, simulate_measurements
+from lynceus.filters import Q_cv, kf_predict, kf_update
 
 from termcolor import colored
 
@@ -39,6 +40,47 @@ def main() -> None:
             print(f"k={k:02d}  z=None (miss)")
         else:
             print(f"k={k:02d}  z=({z[0]:7.2f},{z[1]:7.2f})")
+
+
+    # Kalman Filter
+    model = CVModel(dt=cfg.dt)
+    F = model.F()
+    Q = Q_cv(dt=cfg.dt, accel_sigma=cfg.accel_sigma)
+    H = sensor.H()
+    R = sensor.R()
+
+    # Uses first measurement if available otherwise falls back to truth position
+    x_est = np.zeros(4, dtype=float)
+    if Z[0] is not None:
+        x_est[0:2] = Z[0]
+    else:
+        x_est[0:2] = X[0, 0:2]
+
+    # High initial uncertainty
+    P_est = np.diag([25.0, 25.0, 10.0, 10.0]).astype(float)
+
+    est = np.zeros_like(X)
+    est[0] = x_est
+
+    print(colored("KF track (first 10):", "magenta"))
+    for k in range(1, X.shape[0]):
+        # Predict every step
+        x_pred, P_pred = kf_predict(x_est, P_est, F, Q)
+
+        # Update only if measurement exists
+        if Z[k] is not None:
+            x_est, P_est = kf_update(x_pred, P_pred, Z[k], H, R)
+            tag = "upd"
+        else:
+            x_est, P_est = x_pred, P_pred
+            tag = "prd"
+
+        est[k] = x_est
+
+        if k < 10:
+            px, py, vx, vy = x_est
+            print(f"k={k:02d} [{tag}]  pos=({px:7.2f},{py:7.2f})  vel=({vx:5.2f},{vy:5.2f})")
+
 
 if __name__ == "__main__":
     main()
