@@ -6,6 +6,8 @@ import numpy as np
 from lynceus.dynamics import CVModel
 from lynceus.filters import Q_cv, kf_predict, kf_update
 
+from scipy.optimize import linear_sum_assignment
+
 """
 ------------------------------------------------------------------
 
@@ -50,53 +52,57 @@ def within_radius(p: np.ndarray, q: np.ndarray, r: float) -> bool:
     return _euclid(p, q) <= r
 
 
-def greedy_nn_assign(
+def hungarian_assign(
     track_pos: list[np.ndarray],
     detections: list[np.ndarray],
     gate_radius: float,
 ) -> tuple[dict[int, int], set[int], set[int]]:
     """
-    ------------------------------------------------------
-    Greedy nearest-neighbour assignment with gating
+    --------------------------------------------------------------------------------------------------
 
-    This is decent for now, upgrade to Hungarian later
+    Hungarian assignment with gating
 
-    ------------------------------------------------------
-    Returns:
-      assignments: dict track_index -> det_index
-      unassigned_tracks: set of track indices
-      unassigned_dets: set of detection indices
+    Hungarian assignment serves to find the global minimum cost matching. Gating is
+    enforced by making out-of-gate pairs impossible by the assignment of a large cost.
+    After assignment, true distance is still verified amd invalid pairs are disgarded.
 
-    ------------------------------------------------------
+    This should resoult in a clean one-to-one mapping and avoid duplications leading to
+    tracker explosion.
+
+    --------------------------------------------------------------------------------------------------
     """
     nT = len(track_pos)
     nD = len(detections)
 
-    # candidate pairs with distances (euclidean)
-    pairs: list[tuple[float, int, int]] = []
+    assignments: dict[int, int] = {}
+    unassigned_tracks = set(range(nT))
+    unassigned_dets = set(range(nD))
+
+    if nT == 0 or nD == 0:
+        return assignments, unassigned_tracks, unassigned_dets
+
+    # Cost matrix
+    C = np.zeros((nT, nD), dtype=float)
     for ti in range(nT):
         for di in range(nD):
-            dist = _euclid(track_pos[ti], detections[di])
-            if dist <= gate_radius:
-                pairs.append((dist, ti, di))
+            C[ti, di] = _euclid(track_pos[ti], detections[di])
 
-    # Sort by distance, assiging smallest first
-    pairs.sort(key=lambda t: t[0])
+    big = gate_radius * 1e6
+    C_gated = C.copy()
+    C_gated[C_gated > gate_radius] = big
 
-    assignments: dict[int, int] = {}
-    used_tracks: set[int] = set()
-    used_dets: set[int] = set()
+    row_ind, col_ind = linear_sum_assignment(C_gated)
 
-    for dist, ti, di in pairs:
-        if ti in used_tracks or di in used_dets:
-            continue
-        assignments[ti] = di
-        used_tracks.add(ti)
-        used_dets.add(di)
+    for ti, di in zip(row_ind.tolist(), col_ind.tolist()):
+        if C[ti, di] <= gate_radius:
+            assignments[ti] = di
 
+    used_tracks = set(assignments.keys())
+    used_dets = set(assignments.values())
     unassigned_tracks = set(range(nT)) - used_tracks
     unassigned_dets = set(range(nD)) - used_dets
     return assignments, unassigned_tracks, unassigned_dets
+
 
 
 class MultiTargetTracker:
@@ -163,7 +169,7 @@ class MultiTargetTracker:
             pred_pos.append(x_pred[0:2])
 
         # Associate detections to predicted track positions
-        assignments, unassigned_tracks, unassigned_dets = greedy_nn_assign(
+        assignments, unassigned_tracks, unassigned_dets = hungarian_assign(
             track_pos=pred_pos,
             detections=detections,
             gate_radius=self.gate_radius,
