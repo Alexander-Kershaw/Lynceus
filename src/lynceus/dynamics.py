@@ -77,3 +77,54 @@ def simulate_truth_cv(
         X[k + 1] = model.step(X[k])
 
     return X
+
+
+def simulate_truth_cv_multi(
+    X0: np.ndarray,
+    dt: float,
+    steps: int,
+) -> np.ndarray:
+    """
+    -------------------------------------------------------------------
+
+    Simulate N targets under the CV model
+
+    Process:
+
+    - Reuse the same transition matrix F
+
+    - Apply the matrix F to each target independently for each timestep
+
+    - Output: time x target x state
+
+    Parameters
+    -------------------------------------------------------------------
+    X0 : (N,4) array
+        Initial states for all targets.
+    dt : float
+    steps : int
+
+    Returns
+    -------------------------------------------------------------------
+    X : (steps+1, N, 4) array
+        X[k, i] is state of target i at timestep k.
+
+    -------------------------------------------------------------------    
+    """
+    if X0.ndim != 2 or X0.shape[1] != 4:
+        raise ValueError(f"X0 must have shape (N,4), got {X0.shape}")
+    if steps < 1:
+        raise ValueError("steps must be >= 1")
+
+    model = CVModel(dt=dt)
+    F = model.F()
+
+    n = X0.shape[0]
+    X = np.zeros((steps + 1, n, 4), dtype=float)
+    X[0] = X0
+
+    for k in range(steps):
+        # applying each state to each target
+        X[k + 1] = (F @ X[k].T).T
+
+    return X
