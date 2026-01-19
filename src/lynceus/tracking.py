@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import numpy as np
+
+from lynceus.dynamics import CVModel
+from lynceus.filters import Q_cv, kf_predict, kf_update
+
+"""
+------------------------------------------------------------------
+
+Using Kalman Filter per track embedded in a tracker method
+
+Features:
+
+- Uses last predicted position (not last measurement), so should
+be more resilient to crosses and misses
+
+- Track confirmation protocol provents every random detection hit
+being tracked, should help with building resilience to cluttered signals
+
+
+------------------------------------------------------------------
+"""
+
+
+@dataclass
+class Track:
+    track_id: int
+    x: np.ndarray       
+    P: np.ndarray    
+    age: int = 0
+    hits: int = 0
+    misses: int = 0
+    confirmed: bool = False
+
+
+# Defining euclidean distance
+def _euclid(a: np.ndarray, b: np.ndarray) -> float:
+    d = a - b
+    return float(np.sqrt(d[0] * d[0] + d[1] * d[1]))
+
+
+def greedy_nn_assign(
+    track_pos: list[np.ndarray],
+    detections: list[np.ndarray],
+    gate_radius: float,
+) -> tuple[dict[int, int], set[int], set[int]]:
+    """
+    ------------------------------------------------------
+    Greedy nearest-neighbour assignment with gating
+
+    This is decent for now, upgrade to Hungarian later
+
+    ------------------------------------------------------
+    Returns:
+      assignments: dict track_index -> det_index
+      unassigned_tracks: set of track indices
+      unassigned_dets: set of detection indices
+
+    ------------------------------------------------------
+    """
+    nT = len(track_pos)
+    nD = len(detections)
+
+    # candidate pairs with distances (euclidean)
+    pairs: list[tuple[float, int, int]] = []
+    for ti in range(nT):
+        for di in range(nD):
+            dist = _euclid(track_pos[ti], detections[di])
+            if dist <= gate_radius:
+                pairs.append((dist, ti, di))
+
+    # Sort by distance, assiging smallest first
+    pairs.sort(key=lambda t: t[0])
+
+    assignments: dict[int, int] = {}
+    used_tracks: set[int] = set()
+    used_dets: set[int] = set()
+
+    for dist, ti, di in pairs:
+        if ti in used_tracks or di in used_dets:
+            continue
+        assignments[ti] = di
+        used_tracks.add(ti)
+        used_dets.add(di)
+
+    unassigned_tracks = set(range(nT)) - used_tracks
+    unassigned_dets = set(range(nD)) - used_dets
+    return assignments, unassigned_tracks, unassigned_dets
+
+
+class MultiTargetTracker:
+    def __init__(
+        self,
+        dt: float,
+        accel_sigma: float,
+        H: np.ndarray,
+        R: np.ndarray,
+        gate_radius: float,
+        confirm_hits: int,
+        kill_misses: int,
+    ) -> None:
+        self.model = CVModel(dt=dt)
+        self.F = self.model.F()
+        self.Q = Q_cv(dt=dt, accel_sigma=accel_sigma)
+        self.H = H
+        self.R = R
+
+        self.gate_radius = gate_radius
+        self.confirm_hits = confirm_hits
+        self.kill_misses = kill_misses
+
+        self._next_id = 1
+        self.tracks: list[Track] = []
+
+    def _init_track(self, z: np.ndarray) -> Track:
+        # A new track starts with position from detection, zero velocity
+        x = np.array([z[0], z[1], 0.0, 0.0], dtype=float)
+        P = np.diag([25.0, 25.0, 25.0, 25.0]).astype(float)
+        t = Track(track_id=self._next_id, x=x, P=P, age=0, hits=1, misses=0, confirmed=False)
+        self._next_id += 1
+        return t
+
+    def step(self, detections: list[np.ndarray]) -> list[Track]:
+        """
+        ------------------------------------------------------------
+        
+        Advance tracker by one timestep given a set of detections
+        Returns the current track list after update
+
+        -------------------------------------------------------------
+        """
+        # Predict all tracks
+        pred_x: list[np.ndarray] = []
+        pred_P: list[np.ndarray] = []
+        pred_pos: list[np.ndarray] = []
+
+        for trk in self.tracks:
+            x_pred, P_pred = kf_predict(trk.x, trk.P, self.F, self.Q)
+            pred_x.append(x_pred)
+            pred_P.append(P_pred)
+            pred_pos.append(x_pred[0:2])
+
+        #  Associate detections to predicted track positions
+        assignments, unassigned_tracks, unassigned_dets = greedy_nn_assign(
+            track_pos=pred_pos,
+            detections=detections,
+            gate_radius=self.gate_radius,
+        )
+
+        # Update assigned tracks
+        for ti, di in assignments.items():
+            z = detections[di]
+            x_upd, P_upd = kf_update(pred_x[ti], pred_P[ti], z, self.H, self.R)
+
+            trk = self.tracks[ti]
+            trk.x = x_upd
+            trk.P = P_upd
+            trk.age += 1
+            trk.hits += 1
+            trk.misses = 0
+            if (not trk.confirmed) and trk.hits >= self.confirm_hits:
+                trk.confirmed = True
+
+        # Handle unassigned tracks
+        for ti in sorted(unassigned_tracks):
+            trk = self.tracks[ti]
+            trk.x = pred_x[ti]
+            trk.P = pred_P[ti]
+            trk.age += 1
+            trk.misses += 1
+
+        # Create new tracks from unassigned detections
+        for di in sorted(unassigned_dets):
+            self.tracks.append(self._init_track(detections[di]))
+
+        # Delete tracks with too many misses
+        self.tracks = [t for t in self.tracks if t.misses < self.kill_misses]
+
+        return self.tracks

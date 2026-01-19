@@ -7,6 +7,8 @@ from lynceus.filters import Q_cv, kf_predict, kf_update
 from lynceus.metrics import rmse, rmse_measurements_vs_truth
 from lynceus.plotting import plot_truth_meas_kf, plot_radar_screen, plot_truth_and_detections_multi
 from lynceus.scenarios import crossing_scenario
+from lynceus.tracking import MultiTargetTracker
+
 
 from termcolor import colored
 
@@ -36,18 +38,38 @@ def main() -> None:
     sensor = CartesianSensor(sigma=cfg.meas_sigma, p_miss=cfg.p_miss, rng=rng)
     Z = simulate_measurements_multi(X, sensor)
 
-    # plot multi target crossing scenario  
-    plot_truth_and_detections_multi(X, Z)
+    # Multi-target tracking
+    tracker = MultiTargetTracker(
+        dt=cfg.dt,
+        accel_sigma=cfg.accel_sigma,
+        H=sensor.H(),
+        R=sensor.R(),
+        gate_radius=cfg.gate_radius,
+        confirm_hits=cfg.confirm_hits,
+        kill_misses=cfg.kill_misses,
+    )
+
+    # Run tracking over time
+    track_log: list[list[tuple[int, float, float, bool]]] = []
+    for k in range(len(Z)):
+        tracks = tracker.step(Z[k])
+        snap = []
+        for t in tracks:
+            snap.append((t.track_id, float(t.x[0]), float(t.x[1]), t.confirmed))
+        track_log.append(snap)
+
+    print(colored("Tracks at timesteps 0..9:", "magenta"))
+    for k in range(10):
+        items = ", ".join([f"id={tid} ({x:.1f},{y:.1f}){'*' if conf else ''}" for tid, x, y, conf in track_log[k]])
+        print(f"k={k:02d}  {items}")
+
 
     print(colored("Detections per timestep (first 10):", "yellow"))
     for k in range(min(10, len(Z))):
         print(f"k={k:02d}  detections={len(Z[k])}")
 
-    print(colored("Multi-target data generation complete (KF disabled until association).", "green"))
+
     return
-
-#
-
 
 
 
