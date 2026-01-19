@@ -5,7 +5,8 @@ from lynceus.dynamics import CVModel, simulate_truth_cv, simulate_truth_cv_multi
 from lynceus.sensors import CartesianSensor, simulate_measurements, simulate_measurements_multi
 from lynceus.filters import Q_cv, kf_predict, kf_update
 from lynceus.metrics import rmse, rmse_measurements_vs_truth
-from lynceus.plotting import plot_truth_meas_kf, plot_radar_screen
+from lynceus.plotting import plot_truth_meas_kf, plot_radar_screen, plot_truth_and_detections_multi
+from lynceus.scenarios import crossing_scenario
 
 from termcolor import colored
 
@@ -21,14 +22,8 @@ def main() -> None:
     print(colored(f"dt={cfg.dt}, steps={cfg.steps}, seed={cfg.seed}", "light_yellow"))
 
     # Multi-target truth 
-    X0 = np.array(
-        [
-            [0.0, 0.0, 1.2, -0.4],     # target 0
-            [20.0, -5.0, -0.9, 0.35],  # target 1
-            [-10.0, 15.0, 0.6, -0.8],  # target 2
-        ],
-        dtype=float,
-    )
+    X0 = crossing_scenario()
+
     X = simulate_truth_cv_multi(X0=X0, dt=cfg.dt, steps=cfg.steps)
 
     print(colored("Truth (k=0 positions):", "cyan"))
@@ -40,6 +35,9 @@ def main() -> None:
     rng = np.random.default_rng(cfg.seed)
     sensor = CartesianSensor(sigma=cfg.meas_sigma, p_miss=cfg.p_miss, rng=rng)
     Z = simulate_measurements_multi(X, sensor)
+
+    # plot multi target crossing scenario  
+    plot_truth_and_detections_multi(X, Z)
 
     print(colored("Detections per timestep (first 10):", "yellow"))
     for k in range(min(10, len(Z))):

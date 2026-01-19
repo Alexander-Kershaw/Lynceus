@@ -82,3 +82,55 @@ def plot_radar_screen(
     plt.grid(True)
     plt.legend()
     plt.show()
+
+
+
+def plot_truth_and_detections_multi(
+    X: np.ndarray,
+    Z: list[list[np.ndarray]],
+    title: str = "LYNCEUS: target crossing scenario",
+) -> None:
+    """
+    ------------------------------------------------------------------------
+    For the plot of multi-target truth trajectories and unlabelled detections.
+
+    note: Detections are flattened into one cloud or raw detection hits,
+    This is because it should look messy near the crossing as targets become
+    more indistinguishable. 
+
+    X: (T, N, 4)
+    Z: list length T, each element is list of (2,) detections
+
+    ------------------------------------------------------------------------
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if X.ndim != 3 or X.shape[2] != 4:
+        raise ValueError(f"X must have shape (T,N,4), got {X.shape}")
+
+    T, N, _ = X.shape
+
+    plt.figure()
+    plt.title(title)
+    plt.xlabel("x")
+    plt.ylabel("y")
+
+    # Truth trajectories per target
+    for i in range(N):
+        truth = X[:, i, 0:2]
+        plt.plot(truth[:, 0], truth[:, 1], label=f"truth tgt {i}")
+
+    # Flatten detections into a raw detection hit cloud
+    dets = []
+    for k in range(T):
+        for z in Z[k]:
+            dets.append(z)
+    if len(dets) > 0:
+        D = np.vstack(dets)
+        plt.scatter(D[:, 0], D[:, 1], marker="x", label="detections")
+
+    plt.axis("equal")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
