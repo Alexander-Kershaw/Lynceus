@@ -110,6 +110,14 @@ def plot_truth_and_detections_multi(
         raise ValueError(f"X must have shape (T,N,4), got {X.shape}")
 
     T, N, _ = X.shape
+    if N < 2:
+        raise ValueError("At least 2 targets required to show a crossing event")
+    
+    # Compute closest approach between target 0 and 1 (by truth positions)
+    p0 = X[:, 0, 0:2]
+    p1 = X[:, 1, 0:2]
+    d = np.linalg.norm(p0 - p1, axis=1)
+    k_star = int(np.argmin(d))  # timestep where they're closest
 
     plt.figure()
     plt.title(title)
@@ -121,6 +129,9 @@ def plot_truth_and_detections_multi(
         truth = X[:, i, 0:2]
         plt.plot(truth[:, 0], truth[:, 1], label=f"truth tgt {i}")
 
+        # Marking target positions at their closest approach
+        plt.scatter([truth[k_star, 0]], [truth[k_star, 1]], marker="o")
+
     # Flatten detections into a raw detection hit cloud
     dets = []
     for k in range(T):
@@ -130,7 +141,13 @@ def plot_truth_and_detections_multi(
         D = np.vstack(dets)
         plt.scatter(D[:, 0], D[:, 1], marker="x", label="detections")
 
+    # Crossing point indicator (detection hits cloud should be here)
+    mid = 0.5 * (p0[k_star] + p1[k_star])
+    plt.scatter([mid[0]], [mid[1]], marker="*", label=f"closest approach k={k_star}")
+
     plt.axis("equal")
     plt.grid(True)
     plt.legend()
     plt.show()
+
+    print(f"[crossing] closest approach at k={k_star}, distance={d[k_star]:.3f}, midpoint=({mid[0]:.2f},{mid[1]:.2f})")

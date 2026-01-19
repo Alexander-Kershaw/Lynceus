@@ -13,15 +13,16 @@ def crossing_scenario() -> np.ndarray:
     This is to test the worst case scenario for multi target distinction
     for radar systems
 
-    Returns X0: (N,4) initial states [px, py, vx, vy].
-    Targets are set to cross near the origin around mid-simulation.
+    Returns X0: (N,4) initial states [px, py, vx, vy]
 
     ------------------------------------------------------------------
     """
+
+    # Diagonal crossing scenario 
     X0 = np.array(
         [
-            [-25.0, 0.0, 1.2, 0.0],   # target 0 moves right
-            [25.0, 0.0, -1.2, 0.0],   # target 1 moves left (crossing paths)
+            [-25.0, -12.0, 1.2, 0.6],   # target 0 moves right
+            [25.0, -12.0, -1.2, 0.6],   # target 1 moves left (crossing paths)
         ],
         dtype=float,
     )
