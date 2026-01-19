@@ -5,7 +5,7 @@ from lynceus.dynamics import CVModel, simulate_truth_cv
 from lynceus.sensors import CartesianSensor, simulate_measurements
 from lynceus.filters import Q_cv, kf_predict, kf_update
 from lynceus.metrics import rmse, rmse_measurements_vs_truth
-
+from lynceus.plotting import plot_truth_meas_kf
 
 from termcolor import colored
 
@@ -95,6 +95,8 @@ def main() -> None:
     print(f"RMSE position | KF vs truth: {kf_rmse:.3f}")
     print(f"RMSE position | meas vs truth: {meas_rmse:.3f}")
 
+    # Plot trajectories (truth), measurements, Kalman filter
+    plot_truth_meas_kf(X, Z, est)
 
 
 if __name__ == "__main__":
